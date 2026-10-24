@@ -53,29 +53,28 @@ jobs:
           ls -la state || true
 
       - name: Train in this run's new simulations
-        run: python scripts/daily_train.py --state-dir state --minutes "$TRAIN_MINUTES" --eval-episodes 30
+        run: python scripts/daily_train.py --state-dir state --out-dir out --minutes "$TRAIN_MINUTES" --eval-episodes 30 --video-episodes 3
 
-      - name: Publish model (runs even if training failed, so progress is never lost)
+      - name: Publish model + cumulative data (runs even if training failed, so progress is never lost)
         if: always()
         run: |
           [ -d state ] && [ -n "$(ls -A state)" ] || { echo "nothing to publish"; exit 0; }
           gh release view model-latest >/dev/null 2>&1 || \
-            gh release create model-latest --title "Latest FireBot model" \
-              --notes "Updated automatically by the daily-train workflow. policy.onnx = current champion."
+            gh release create model-latest --title "Latest FireBot model + all-runs data" \
+              --notes "Updated automatically. policy.onnx = current champion. training_log_all.csv, eval_episodes_all.csv, runs_index.jsonl = data from EVERY run (for reports/papers)."
           gh release upload model-latest state/* --clobber
-          PROMOTED=$(python -c "import json;print(json.load(open('state/metrics.json')).get('promoted', False))" 2>/dev/null || echo False)
-          if [ "$PROMOTED" = "True" ] && [ -f state/policy.onnx ]; then
-            D=$(date -u +%F-%H%M)
-            gh release create "model-$D" state/policy.onnx state/metrics.json state/report.md \
-              --title "FireBot model $D" --notes-file state/report.md || true
-          fi
+
+      - name: Publish this run (3D video + every parameter) as its own release
+        if: always()
+        run: |
+          [ -f out/run_tag.txt ] || { echo "no run output to publish"; exit 0; }
+          TAG=$(cat out/run_tag.txt)
+          gh release create "$TAG" out/* --title "FireBot training run $TAG" --notes-file out/release_notes.md \
+            || gh release upload "$TAG" out/* --clobber
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: training-report
-          path: |
-            state/report.md
-            state/metrics.json
-            state/training_log.csv
+          name: training-run
+          path: out/
           retention-days: 30

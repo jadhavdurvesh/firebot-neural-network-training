@@ -20,5 +20,5 @@ jobs:
           pip install -r requirements.txt
       - name: Physics + brain + safety tests
         run: python -m pytest -q tests
-      - name: 30-second smoke run of the daily pipeline
-        run: python scripts/daily_train.py --state-dir /tmp/state --minutes 0.5 --n-envs 1 --eval-episodes 2
+      - name: Smoke run of the full pipeline (train, evaluate, 3D video, run record)
+        run: python scripts/daily_train.py --state-dir /tmp/state --out-dir /tmp/out --minutes 0.5 --n-envs 1 --eval-episodes 2 --video-episodes 1 --video-max-steps 40
