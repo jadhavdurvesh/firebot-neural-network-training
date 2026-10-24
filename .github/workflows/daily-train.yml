@@ -1,0 +1,81 @@
+name: daily-train
+
+# Several times a day (every 6 h): load the previous model -> train it in NEW randomised simulations (new seed every run) (reinforcement learning,
+# reward points) -> test against a fixed benchmark -> promote if better -> publish the model as a GitHub Release.
+on:
+  schedule:
+    - cron: "0 */6 * * *"        # 00:00, 06:00, 12:00, 18:00 UTC (default branch only)
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Training minutes (use 5-10 for a first test; keep <= 300 so runs never overlap)"
+        default: "270"
+      fresh_start:
+        description: "Ignore the saved model and start from scratch"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write                # needed to create/update the model release
+
+concurrency:
+  group: daily-train
+  cancel-in-progress: false
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330         # GitHub hard limit is 360
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TRAIN_MINUTES: ${{ github.event.inputs.minutes || '270' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies (CPU torch; pybullet wheel is cached after the first run)
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: Download the previous model
+        run: |
+          mkdir -p state
+          if [ "${{ github.event.inputs.fresh_start }}" != "true" ]; then
+            gh release download model-latest --dir state --clobber || echo "No saved model yet: first run."
+          fi
+          ls -la state || true
+
+      - name: Train in this run's new simulations
+        run: python scripts/daily_train.py --state-dir state --minutes "$TRAIN_MINUTES" --eval-episodes 30
+
+      - name: Publish model (runs even if training failed, so progress is never lost)
+        if: always()
+        run: |
+          [ -d state ] && [ -n "$(ls -A state)" ] || { echo "nothing to publish"; exit 0; }
+          gh release view model-latest >/dev/null 2>&1 || \
+            gh release create model-latest --title "Latest FireBot model" \
+              --notes "Updated automatically by the daily-train workflow. policy.onnx = current champion."
+          gh release upload model-latest state/* --clobber
+          PROMOTED=$(python -c "import json;print(json.load(open('state/metrics.json')).get('promoted', False))" 2>/dev/null || echo False)
+          if [ "$PROMOTED" = "True" ] && [ -f state/policy.onnx ]; then
+            D=$(date -u +%F-%H%M)
+            gh release create "model-$D" state/policy.onnx state/metrics.json state/report.md \
+              --title "FireBot model $D" --notes-file state/report.md || true
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: training-report
+          path: |
+            state/report.md
+            state/metrics.json
+            state/training_log.csv
+          retention-days: 30
