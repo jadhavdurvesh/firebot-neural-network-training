@@ -19,7 +19,8 @@ Repo -> Settings -> Actions -> General -> Workflow permissions -> **Read and wri
 ## 3. First run (manual, short)
 Actions -> **daily-train** -> Run workflow -> minutes = `10`. The first run builds PyBullet from source (~10 min),
 cached afterwards. When it finishes, open the run's **Summary** page: that is the daily report (reward points per term,
-challenger vs champion, history). A **Releases** entry `model-latest` will contain `policy.onnx`, `state.json`, checkpoints.
+challenger vs champion, history). Under **Releases** you will find `model-latest` (policy.onnx, checkpoints, all-runs CSVs) and a `run-...` release with the
+3D video and the full parameter record (see docs/RUN_RECORD.md).
 
 ## 4. Let it run (several times a day)
 The cron `0 */6 * * *` (UTC) starts automatically on the default branch: 4 runs/day. Each run: resume -> train in

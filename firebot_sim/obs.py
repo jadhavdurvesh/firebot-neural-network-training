@@ -56,8 +56,8 @@ def pose_vec(x, y, yaw, arena_half):
     return [x / arena_half, y / arena_half, math.cos(yaw), math.sin(yaw)]
 
 
-def assemble(lidar_norm, p_feat, f_feat, body, mission, pose, visited, last_action) -> np.ndarray:
+def assemble(lidar_norm, p_feat, f_feat, body, mission, pose, visited, last_action, ir) -> np.ndarray:
     """last_action = the policy's previous [throttle, steer, pump] output (gives the policy short-term memory)."""
-    return np.concatenate([np.asarray(lidar_norm, np.float32), p_feat, f_feat, body, mission, pose,
+    return np.concatenate([np.asarray(lidar_norm, np.float32), np.asarray(ir, np.float32), p_feat, f_feat, body, mission, pose,
                            visited.flatten().astype(np.float32),
                            np.asarray(last_action, np.float32)]).astype(np.float32)

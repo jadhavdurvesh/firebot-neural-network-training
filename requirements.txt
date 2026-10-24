@@ -8,3 +8,6 @@ pytest
 onnx
 onnxscript
 onnxruntime
+imageio
+imageio-ffmpeg
+matplotlib

@@ -48,6 +48,11 @@ class RobotConfig:
     camera_mount: Tuple[float, float, float] = (0.36, 0.0, 0.30)
     detection_range: float = 8.0
     detection_prob: float = 0.97      # per-step prob. of detecting a visible target
+    # forward IR flame/thermal strip (like a flame-sensor array or one row of a thermal camera) -- ASSUMED
+    ir_bins: int = 16                 # horizontal bins across the field of view
+    ir_fov_deg: float = 120.0
+    ir_range: float = 10.0            # m; NOT degraded by smoke (unlike lidar/camera), blocked by walls
+    ir_noise_std: float = 0.01
 
     # ---- power / thermal / pump -- ASSUMED, synthetic ----------------------
     battery_wh: float = 12.0
@@ -99,6 +104,11 @@ class WorldConfig:
     person_radius: float = 0.2
     fire_radius: float = 0.35
     cooling_failure_prob: float = 0.25      # episode has a mid-run cooling fault
+    layout: str = "open"                    # "open" (obstacles in one space) or "building" (rooms + hallway)
+    n_rooms_per_side: Tuple[int, int] = (2, 3)   # building: rooms on each side of the hallway
+    hall_width: float = 2.0                 # building: hallway width (m)
+    door_width: float = 1.5                 # building: doorway width (m)
+    room_furniture: Tuple[int, int] = (0, 2)     # building: boxes per room
 
 
 @dataclass
@@ -122,3 +132,20 @@ class EnvConfig:
     r_wasted_pump: float = -0.03
     r_thermal: float = -0.02
     r_fail: float = -20.0
+
+
+# Domain randomisation applied at every reset when EnvConfig.randomize is True.
+# env.py reads these values, and every run record stores them, so the paper's "randomisation table" is exact.
+DOMAIN_RANDOMIZATION = {
+    "chassis_mass_scale": (0.85, 1.15),
+    "wheel_friction_scale": (0.7, 1.2),
+    "motor_torque_scale": (0.85, 1.1),
+    "lidar_noise_scale": (0.5, 1.5),
+    "pose_noise_std": {"position_m": 0.03, "yaw_rad": 0.02},
+    "initial_battery_fraction": (0.5, 1.0),
+    "ambient_temp_offset_c": (-5.0, 8.0),
+    "smoke_level": (0.0, 0.7),
+    "action_delay_steps": "integer in [0, EnvConfig.max_action_delay]",
+    "cooling_failure": "probability WorldConfig.cooling_failure_prob; starts at a random step in [150, max_steps/2]; "
+                       "cooling effectiveness drops to 0.15",
+}
