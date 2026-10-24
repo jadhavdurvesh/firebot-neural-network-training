@@ -96,9 +96,29 @@ def urdf_path(cfg: RobotConfig) -> str:
     xml = build_urdf(cfg)
     h = hashlib.md5(xml.encode()).hexdigest()[:10]
     path = os.path.join(tempfile.gettempdir(), f"firebot_{h}.urdf")
-    if not os.path.exists(path):
-        with open(path, "w") as f:
+    try:
+        if os.path.getsize(path) > 0:
+            return path
+    except OSError:
+        pass
+
+    fd, tmp_path = tempfile.mkstemp(prefix=f"firebot_{h}_", suffix=".urdf", dir=tempfile.gettempdir())
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(xml)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except OSError:
+        try:
+            if os.path.getsize(path) > 0:
+                return path
+        except OSError:
+            pass
+        raise
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
     return path
 
 
