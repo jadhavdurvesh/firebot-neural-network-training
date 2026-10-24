@@ -19,6 +19,7 @@ import pybullet_data
 from gymnasium import spaces
 from pybullet_utils import bullet_client
 
+from .config import DOMAIN_RANDOMIZATION as DR
 from .config import EnvConfig, RobotConfig, WorldConfig
 from . import obs as obsmod
 from .robot import FireBotRobot
@@ -45,7 +46,7 @@ class FireBotEnv(gym.Env):
         self.robot = None
 
         self.cov_n = self.ecfg.coverage_grid
-        self.obs_dim = self.rcfg.lidar_rays + 4 + 4 + 9 + 4 + 4 + self.cov_n ** 2 + 3
+        self.obs_dim = self.rcfg.lidar_rays + self.rcfg.ir_bins + 4 + 4 + 9 + 4 + 4 + self.cov_n ** 2 + 3
         self.observation_space = spaces.Box(-np.inf, np.inf, (self.obs_dim,), np.float32)
         self.action_space = spaces.Box(-1.0, 1.0, (3,), np.float32)
 
@@ -77,11 +78,15 @@ class FireBotEnv(gym.Env):
         A = wc.arena_half
         self.layout = generate_world(rng, wc, rc.robot_radius, self._n_people, self._n_fires)
         L = self.layout
+        bld = wc.layout == "building"
         for cx, cy, hx, hy in ((A + 0.1, 0, 0.1, A + 0.2), (-A - 0.1, 0, 0.1, A + 0.2),
                                (0, A + 0.1, A + 0.2, 0.1), (0, -A - 0.1, A + 0.2, 0.1)):
-            self._static_box(cx, cy, hx, hy, 0, hz=0.3, rgba=(0.3, 0.3, 0.35, 1))
+            self._static_box(cx, cy, hx, hy, 0, hz=0.6 if bld else 0.3,
+                             rgba=(0.62, 0.58, 0.52, 1) if bld else (0.3, 0.3, 0.35, 1))
         for b in L.boxes:
-            self._static_box(b.cx, b.cy, b.hx, b.hy, b.yaw)
+            wall = b.h > 0.3
+            self._static_box(b.cx, b.cy, b.hx, b.hy, b.yaw, hz=b.h,
+                             rgba=(0.86, 0.83, 0.76, 1) if wall else (0.55, 0.55, 0.6, 1))
         self.person_ids, self.fire_ids = [], []
         for (px, py) in L.people:
             col = bc.createCollisionShape(pb.GEOM_CYLINDER, radius=wc.person_radius, height=1.0)
@@ -94,13 +99,14 @@ class FireBotEnv(gym.Env):
 
         # ---- domain randomisation (episode level)
         if ec.randomize:
-            mass_s, fric_s, torq_s = rng.uniform(0.85, 1.15), rng.uniform(0.7, 1.2), rng.uniform(0.85, 1.1)
+            mass_s, fric_s, torq_s = (rng.uniform(*DR["chassis_mass_scale"]), rng.uniform(*DR["wheel_friction_scale"]),
+                                      rng.uniform(*DR["motor_torque_scale"]))
             self._delay = int(rng.integers(0, ec.max_action_delay + 1))
-            self._lidar_noise = rc.lidar_noise_std * rng.uniform(0.5, 1.5)
-            self._pose_noise = (0.03, 0.02)
-            batt0 = rng.uniform(0.5, 1.0)
-            self.smoke = float(rng.uniform(0.0, 0.7))
-            T_amb = rc.thermal_ambient_c + rng.uniform(-5, 8)
+            self._lidar_noise = rc.lidar_noise_std * rng.uniform(*DR["lidar_noise_scale"])
+            self._pose_noise = (DR["pose_noise_std"]["position_m"], DR["pose_noise_std"]["yaw_rad"])
+            batt0 = rng.uniform(*DR["initial_battery_fraction"])
+            self.smoke = float(rng.uniform(*DR["smoke_level"]))
+            T_amb = rc.thermal_ambient_c + rng.uniform(*DR["ambient_temp_offset_c"])
         else:
             mass_s = fric_s = torq_s = 1.0
             self._delay, self._lidar_noise, self._pose_noise = 0, rc.lidar_noise_std, (0.0, 0.0)
@@ -136,6 +142,7 @@ class FireBotEnv(gym.Env):
         self.max_temp = self.temp
         self._goal_key, self._goal_dist = None, None
         self._lidar = np.ones(rc.lidar_rays, np.float32)
+        self._ir = np.zeros(rc.ir_bins, np.float32)
         self._sense(first=True)
         self._update_coverage()
         return self._obs(), self._info()
@@ -192,6 +199,29 @@ class FireBotEnv(gym.Env):
 
         self.vis_p = check(self.layout.people, 0.5, self.person_ids, True)
         self.vis_f = check(self.layout.fires, 0.28, self.fire_ids, False) & (self.fire_int > 0)
+
+        # --- forward IR strip: heat from active fires per bearing bin. Walls block it; smoke does NOT.
+        nb, fov = rc.ir_bins, math.radians(rc.ir_fov_deg)
+        centers = -fov / 2 + (np.arange(nb) + 0.5) * fov / nb
+        ir = np.zeros(nb, np.float32)
+        cand, frm_l, to_l = [], [], []
+        for i, (fx, fy) in enumerate(self.layout.fires):
+            if self.fire_int[i] <= 0:
+                continue
+            dx, dy = fx - cam[0], fy - cam[1]
+            d = math.hypot(dx, dy)
+            b = (math.atan2(dy, dx) - yaw + math.pi) % (2 * math.pi) - math.pi
+            if d <= rc.ir_range and abs(b) <= fov / 2 + fov / nb:
+                cand.append((i, d, b))
+                frm_l.append(cam.tolist())
+                to_l.append([fx, fy, 0.28])
+        if cand:
+            for (i, d, b), r in zip(cand, bc.rayTestBatch(frm_l, to_l)):
+                if r[0] in (-1, self.robot.id):                     # clear line to the fire
+                    amp = float(self.fire_int[i]) / (1.0 + (d / 2.5) ** 2)
+                    ir += (amp * np.exp(-0.5 * ((centers - b) / (fov / nb)) ** 2)).astype(np.float32)
+        ir += rng.normal(0, rc.ir_noise_std, nb).astype(np.float32)
+        self._ir = np.clip(ir, 0.0, None)
         return pos, yaw
 
     def _update_coverage(self):
@@ -216,7 +246,7 @@ class FireBotEnv(gym.Env):
         mission = obsmod.mission_vec(int(self.located.sum()), self.n_people,
                                      self.fire_int.sum() > 0, self.n_fires)
         return obsmod.assemble(self._lidar, p_feat, f_feat, body, mission,
-                               obsmod.pose_vec(x, y, yw, A), self.visited, self._last_a)
+                               obsmod.pose_vec(x, y, yw, A), self.visited, self._last_a, self._ir)
 
     def _info(self, reason=None):
         return {"people_located": int(self.located.sum()), "n_people": self.n_people,

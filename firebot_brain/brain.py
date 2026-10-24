@@ -50,7 +50,7 @@ class FireBotBrain:
                                f.water_frac, f.temp_c, f.ambient_c, rc.thermal_critical_c, f.cooling_eff,
                                m.all_people_located)
         mission = obsmod.mission_vec(m.located_count, self.n_people, m.any_fire_active, self.n_fires)
-        return obsmod.assemble(lidar, pf, ff, body, mission, obsmod.pose_vec(f.x, f.y, f.yaw, self.A), m.visited, self._last)
+        return obsmod.assemble(lidar, pf, ff, body, mission, obsmod.pose_vec(f.x, f.y, f.yaw, self.A), m.visited, self._last, f.ir_bins)
 
     def step(self, f: SensorFrame, now: float | None = None):
         t0 = time.perf_counter()

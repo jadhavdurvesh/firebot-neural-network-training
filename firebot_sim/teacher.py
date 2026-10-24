@@ -68,12 +68,19 @@ class ReactiveTeacher:
 
         g = self.goal()
         pump = -1.0
-        if g is not None:
-            d, (tx, ty), kind = g
+        ir = e._ir
+        if g is None and e.located.all() and ir.max() > 0.05:
+            # people are done and the IR strip sees heat: turn towards the hottest bearing
+            fov = math.radians(rc.ir_fov_deg)
+            err = -fov / 2 + (int(np.argmax(ir)) + 0.5) * fov / len(ir)
+            d, kind = 5.0, "x"
         else:
-            tx, ty = self._explore_target(pos)
-            d, kind = math.hypot(tx - pos[0], ty - pos[1]), "x"
-        err = _wrap(math.atan2(ty - pos[1], tx - pos[0]) - yaw)
+            if g is not None:
+                d, (tx, ty), kind = g
+            else:
+                tx, ty = self._explore_target(pos)
+                d, kind = math.hypot(tx - pos[0], ty - pos[1]), "x"
+            err = _wrap(math.atan2(ty - pos[1], tx - pos[0]) - yaw)
 
         if kind == "f" and d <= 2.2:                      # in pump range: stop, aim, spray
             if abs(err) < 0.4:

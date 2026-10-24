@@ -32,7 +32,7 @@ class SimHAL:
                     dets.append(Detection("fire", x, y, active=True))
         return SensorFrame(
             t=e.steps * e.dt, x=float(pos[0]), y=float(pos[1]), yaw=float(yaw), vx=vx, vy=vy, wz=wz,
-            steer_angle=e.robot.steer_actual, lidar_m=e._lidar * rc.lidar_range, detections=dets,
+            steer_angle=e.robot.steer_actual, lidar_m=e._lidar * rc.lidar_range, detections=dets, ir_bins=e._ir.copy(),
             battery_frac=max(0.0, e.energy_wh) / rc.battery_wh, water_frac=e.water, temp_c=e.temp,
             ambient_c=e.T_amb, cooling_eff=e.cooling_eff)
 

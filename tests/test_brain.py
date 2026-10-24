@@ -20,11 +20,13 @@ def _frame(**kw):
 
 
 def test_obs_identical_between_sim_and_robot_code_path():
-    """Brain (robot-side) must build the same 88-float observation the env gave the policy in training."""
+    """Brain (robot-side) must build the same 104-float observation the env gave the policy in training."""
     rc = RobotConfig(detection_prob=1.0)
     worst = 0.0
-    for seed in (1, 2, 3):
-        env = FireBotEnv(rc, WorldConfig(n_people=(1, 2)), EnvConfig(randomize=False))
+    cases = [(WorldConfig(n_people=(1, 2)), 1), (WorldConfig(n_people=(1, 2)), 2),
+             (WorldConfig(layout="building", n_people=(1, 2)), 4)]
+    for wcfg, seed in cases:
+        env = FireBotEnv(rc, wcfg, EnvConfig(randomize=False))
         hal = SimHAL(env)
         hal.reset(seed=seed)
         brain = FireBotBrain(None, rc, n_people=env.n_people, n_fires=env.n_fires, safety=False)
